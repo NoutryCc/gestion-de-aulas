@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Mapa 3D | Gestión de Aulas</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/estilos.css') }}">
+</head>
+<body class="pagina-mapa">
+  <header>
+    <h1>Mapa 3D · Universidad Modular Abierta</h1>
+    <nav aria-label="Opciones de cuenta">
+      <a href="/">Inicio</a>
+      {% if is_admin %}<a href="/admin">Administración</a>{% endif %}
+      <button type="button" id="logoutBtn">Cerrar sesión</button>
+    </nav>
+  </header>
+  <div class="layout">
+    <iframe id="mapa" src="{{ map_url }}" title="Mapa 3D de la Universidad Modular Abierta"></iframe>
+    <aside aria-labelledby="scheduleTitle">
+      <h2 id="scheduleTitle">Mis horarios</h2>
+      <p class="sub" id="scheduleSub"></p>
+      <div class="acciones-aside">
+        <p id="scheduleStatus" role="status">Cargando horarios...</p>
+        <button class="btn btn-secundario" type="button" id="refreshSchedules">Actualizar</button>
+      </div>
+      <div id="schedules"></div>
+    </aside>
+  </div>
+  <script>
+    const DIAS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const hoy = DIAS[new Date().getDay()];
+    const $ = id => document.getElementById(id);
+    const escapeHtml = v => String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+    // "Nivel 2 - Aula 3" -> { nivel: 2, aula: "Aula 3" }
+    function parseAula(texto) {
+      const m = String(texto).match(/nivel\s*(\d)\s*[-·:,]?\s*(.*)/i);
+      return m ? { nivel: Number(m[1]), aula: m[2].trim() } : { nivel: null, aula: String(texto).trim() };
+    }
+
+    function verAula(texto) {
+      const { nivel, aula } = parseAula(texto);
+      $('mapa').contentWindow.postMessage({ type: 'ir-aula', aula, nivel }, location.origin);
+      if (window.innerWidth <= 900) $('mapa').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    async function loadSchedules() {
+      const response = await fetch('/api/mis-horarios');
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'No se pudieron cargar los horarios');
+      const admin = result.user_type === 'administracion';
+      $('scheduleTitle').textContent = admin ? 'Horarios activos' : 'Mis horarios';
+      $('scheduleSub').textContent = admin ? 'Todas las materias activas.' : 'Pulsa una clase para ubicar su aula en el mapa.';
+      $('scheduleStatus').style.color = '';
+      const box = $('schedules');
+      if (!result.horarios.length) {
+        $('scheduleStatus').textContent = '';
+        box.innerHTML = '<p class="vacio">No hay clases con horario asignado. Si necesitas acceso, consulta con Administración.</p>';
+        return;
+      }
+      $('scheduleStatus').textContent = result.horarios.length + ' clase(s)';
+      box.innerHTML = result.horarios.map(item =>
+        `<article class="horario ${item.dia === hoy ? 'hoy' : ''}">
+          ${item.dia === hoy ? '<span class="etiqueta">Hoy</span>' : ''}
+          <h3>${escapeHtml(item.codigo)} · ${escapeHtml(item.materia)}</h3>
+          <dl>
+            <dt>Día</dt><dd>${escapeHtml(item.dia)}</dd>
+            <dt>Horario</dt><dd>${escapeHtml(item.horario)}</dd>
+            <dt>Aula</dt><dd>${escapeHtml(item.numero_aula)}</dd>
+            <dt>Docente</dt><dd>${escapeHtml(item.docente)}</dd>
+          </dl>
+          <button type="button" class="btn btn-primario" data-aula="${escapeHtml(item.numero_aula)}">Ver aula en el mapa</button>
+        </article>`).join('');
+    }
+
+    const showError = e => { $('scheduleStatus').textContent = e.message; $('scheduleStatus').style.color = '#b00020'; };
+
+    $('schedules').addEventListener('click', e => {
+      const b = e.target.closest('button[data-aula]');
+      if (b) verAula(b.dataset.aula);
+    });
+    $('refreshSchedules').addEventListener('click', () => loadSchedules().catch(showError));
+    $('logoutBtn').addEventListener('click', async () => {
+      try {
+        const r = await fetch('/logout', { method: 'POST' });
+        if (!r.ok) throw new Error();
+        window.location.replace('/');
+      } catch { alert('No se pudo cerrar la sesión. Intenta de nuevo.'); }
+    });
+    setInterval(() => loadSchedules().catch(showError), 30000);
+    loadSchedules().catch(showError);
+  </script>
+</body>
+</html>

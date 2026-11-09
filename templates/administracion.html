@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Administración | Gestión de Aulas</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/estilos.css') }}">
+</head>
+<body>
+  <header>
+    <h1>Administración · Gestión de Aulas</h1>
+    <nav aria-label="Opciones de cuenta">
+      <a href="/">Inicio</a><a href="/mapa-3d">Mapa 3D</a>
+      <button type="button" id="logoutBtn">Cerrar sesión</button>
+    </nav>
+  </header>
+  <main class="admin">
+    <div class="grid">
+      <section>
+        <h2>Registrar materia</h2>
+        <form id="subjectForm">
+          <input id="subjectCode" maxlength="50" placeholder="Código de materia" required>
+          <input id="subjectName" maxlength="100" placeholder="Nombre de materia" required>
+          <textarea id="subjectDescription" placeholder="Descripción (opcional)"></textarea>
+          <button class="primary" type="submit">Guardar materia</button>
+        </form>
+        <p class="notice" id="subjectMessage" role="status"></p>
+      </section>
+      <section>
+        <h2>Asignar horario</h2>
+        <form id="scheduleForm">
+          <select id="scheduleSubject" required>
+            <option value="">Selecciona una materia</option>
+          </select>
+          <select id="teacherId" required>
+            <option value="">Selecciona un docente</option>
+          </select>
+          <select id="scheduleDay" required>
+            <option value="">Selecciona el día</option>
+            <option>Lunes</option><option>Martes</option><option>Miércoles</option>
+            <option>Jueves</option><option>Viernes</option><option>Sábado</option><option>Domingo</option>
+          </select>
+          <input id="scheduleTime" maxlength="50" placeholder="Horario (ej. 08:00 - 10:00)" required>
+          <input id="classroom" maxlength="50" placeholder="Aula (ej. Nivel 2 - Aula 3)" list="aulasMapa" required>
+          <datalist id="aulasMapa"><option value="Nivel 1 - Aula A-1"><option value="Nivel 1 - Aula A-2"><option value="Nivel 1 - Aula A-3"><option value="Nivel 1 - Aula A-4"><option value="Nivel 1 - Aula A-5"><option value="Nivel 1 - Aula A-6"><option value="Nivel 1 - Biblioteca"><option value="Nivel 1 - Auditorium"><option value="Nivel 2 - Aula 1"><option value="Nivel 2 - Aula 2"><option value="Nivel 2 - Aula 3"><option value="Nivel 2 - Aula 4"><option value="Nivel 2 - Aula 5"><option value="Nivel 2 - Aula 6"><option value="Nivel 2 - Aula 7"><option value="Nivel 2 - Aula 8"><option value="Nivel 2 - Centro de Cómputo 2"><option value="Nivel 3 - Aula 1"><option value="Nivel 3 - Aula 2"><option value="Nivel 3 - Aula 3"><option value="Nivel 3 - Aula 4"><option value="Nivel 3 - Aula 5"><option value="Nivel 3 - Aula 6"><option value="Nivel 3 - Aula 7"><option value="Nivel 3 - Aula 8"><option value="Nivel 3 - Aula 9"></datalist>
+          <button class="primary" type="submit">Guardar horario</button>
+        </form>
+        <p class="notice" id="scheduleMessage" role="status"></p>
+      </section>
+    </div>
+    <section>
+      <h2>Inscribir estudiantes en materias</h2>
+      <p>Las personas estudiantes solo verán los horarios de las materias asignadas aquí.</p>
+      <form id="enrollmentForm">
+        <select id="enrollmentStudent" required>
+          <option value="">Selecciona un estudiante</option>
+        </select>
+        <select id="enrollmentSubject" required>
+          <option value="">Selecciona una materia activa</option>
+        </select>
+        <button class="primary" type="submit">Asignar materia</button>
+      </form>
+      <p class="notice" id="enrollmentMessage" role="status"></p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Estudiante</th><th>Código</th><th>Materia</th><th>Acción</th></tr></thead>
+        <tbody id="enrollmentsTable"></tbody>
+      </table></div>
+    </section>
+    <section>
+      <h2>Materias registradas</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Código</th><th>Nombre</th><th>Descripción</th><th>Estado</th><th>Acción</th></tr></thead>
+        <tbody id="subjectsTable"></tbody>
+      </table></div>
+    </section>
+    <section>
+      <h2>Horarios asignados</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Materia</th><th>Docente</th><th>Día</th><th>Horario</th><th>Aula</th><th>Estado</th><th>Acción</th></tr></thead>
+        <tbody id="schedulesTable"></tbody>
+      </table></div>
+    </section>
+  </main>
+  <script>
+    async function api(url, options = {}) {
+      const response = await fetch(url, {
+        ...options,
+        headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'La operación no se pudo completar');
+      return result;
+    }
+
+    function setMessage(id, text, isError = false) {
+      const element = document.getElementById(id);
+      element.textContent = text;
+      element.style.color = isError ? '#b00020' : '#166534';
+    }
+
+    async function refreshData() {
+      const [subjectResult, scheduleResult, teacherResult, studentResult, enrollmentResult] = await Promise.all([
+        api('/admin/api/materias'),
+        api('/admin/api/horarios'),
+        api('/admin/api/docentes'),
+        api('/admin/api/estudiantes'),
+        api('/admin/api/inscripciones')
+      ]);
+      const activeSubjects = subjectResult.materias.filter(item => item.activo);
+      document.getElementById('scheduleSubject').innerHTML =
+        '<option value="">Selecciona una materia</option>' +
+        activeSubjects.map(item => `<option value="${item.id}">${escapeHtml(item.codigo)} · ${escapeHtml(item.nombre)}</option>`).join('');
+      document.getElementById('enrollmentSubject').innerHTML =
+        '<option value="">Selecciona una materia activa</option>' +
+        activeSubjects.map(item => `<option value="${item.id}">${escapeHtml(item.codigo)} · ${escapeHtml(item.nombre)}</option>`).join('');
+      document.getElementById('teacherId').innerHTML =
+        '<option value="">Selecciona un docente</option>' +
+        teacherResult.docentes.map(item => `<option value="${item.id}">${escapeHtml(item.usuario)}</option>`).join('');
+      document.getElementById('enrollmentStudent').innerHTML =
+        '<option value="">Selecciona un estudiante</option>' +
+        studentResult.estudiantes.map(item => `<option value="${item.id}">${escapeHtml(item.usuario)}</option>`).join('');
+      document.getElementById('subjectsTable').innerHTML = subjectResult.materias.map(item =>
+        `<tr class="${item.activo ? '' : 'inactive'}">
+          <td>${escapeHtml(item.codigo)}</td><td>${escapeHtml(item.nombre)}</td>
+          <td>${escapeHtml(item.descripcion || '')}</td><td>${item.activo ? 'Activa' : 'Inactiva'}</td>
+          <td><button type="button" data-kind="materia" data-id="${item.id}" data-active="${!item.activo}">${item.activo ? 'Desactivar' : 'Activar'}</button></td>
+        </tr>`
+      ).join('');
+      document.getElementById('schedulesTable').innerHTML = scheduleResult.horarios.map(item =>
+        `<tr class="${item.activo ? '' : 'inactive'}">
+          <td>${escapeHtml(item.materia)}</td><td>${escapeHtml(item.docente)}</td><td>${escapeHtml(item.dia)}</td>
+          <td>${escapeHtml(item.horario)}</td><td>${escapeHtml(item.numero_aula)}</td>
+          <td>${item.activo ? 'Activo' : 'Inactivo'}</td>
+          <td><button type="button" data-kind="horario" data-id="${item.id}" data-active="${!item.activo}">${item.activo ? 'Desactivar' : 'Activar'}</button></td>
+        </tr>`
+      ).join('');
+      document.getElementById('enrollmentsTable').innerHTML = enrollmentResult.inscripciones.map(item =>
+        `<tr>
+          <td>${escapeHtml(item.estudiante)}</td><td>${escapeHtml(item.codigo)}</td>
+          <td>${escapeHtml(item.materia)}</td>
+          <td><button type="button" data-kind="inscripcion" data-student="${item.estudiante_id}" data-subject="${item.materia_id}">Quitar</button></td>
+        </tr>`
+      ).join('');
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[character]);
+    }
+
+    document.getElementById('subjectForm').addEventListener('submit', async event => {
+      event.preventDefault();
+      try {
+        await api('/admin/api/materias', {
+          method: 'POST',
+          body: JSON.stringify({
+            codigo: document.getElementById('subjectCode').value,
+            nombre: document.getElementById('subjectName').value,
+            descripcion: document.getElementById('subjectDescription').value
+          })
+        });
+        event.target.reset();
+        setMessage('subjectMessage', 'Materia guardada correctamente');
+        await refreshData();
+      } catch (error) { setMessage('subjectMessage', error.message, true); }
+    });
+
+    document.getElementById('scheduleForm').addEventListener('submit', async event => {
+      event.preventDefault();
+      try {
+        await api('/admin/api/horarios', {
+          method: 'POST',
+          body: JSON.stringify({
+            materia_id: Number(document.getElementById('scheduleSubject').value),
+            docente_id: Number(document.getElementById('teacherId').value),
+            dia: document.getElementById('scheduleDay').value,
+            horario: document.getElementById('scheduleTime').value,
+            numero_aula: document.getElementById('classroom').value
+          })
+        });
+        event.target.reset();
+        setMessage('scheduleMessage', 'Horario asignado correctamente');
+        await refreshData();
+      } catch (error) { setMessage('scheduleMessage', error.message, true); }
+    });
+
+    document.getElementById('enrollmentForm').addEventListener('submit', async event => {
+      event.preventDefault();
+      try {
+        await api('/admin/api/inscripciones', {
+          method: 'POST',
+          body: JSON.stringify({
+            estudiante_id: Number(document.getElementById('enrollmentStudent').value),
+            materia_id: Number(document.getElementById('enrollmentSubject').value)
+          })
+        });
+        event.target.reset();
+        setMessage('enrollmentMessage', 'Materia asignada al estudiante');
+        await refreshData();
+      } catch (error) { setMessage('enrollmentMessage', error.message, true); }
+    });
+
+    document.addEventListener('click', async event => {
+      const button = event.target.closest('button[data-kind]');
+      if (!button) return;
+      const kind = button.dataset.kind;
+      if (kind === 'inscripcion') {
+        try {
+          await api(`/admin/api/inscripciones/${button.dataset.student}/${button.dataset.subject}`, {
+            method: 'DELETE'
+          });
+          await refreshData();
+        } catch (error) { window.alert(error.message); }
+        return;
+      }
+      const endpoint = kind === 'materia' ? 'materias' : 'horarios';
+      try {
+        await api(`/admin/api/${endpoint}/${button.dataset.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ activo: button.dataset.active === 'true' })
+        });
+        await refreshData();
+      } catch (error) { window.alert(error.message); }
+    });
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      try {
+        await api('/logout', { method: 'POST' });
+        window.location.replace('/');
+      } catch (error) { window.alert(error.message); }
+    });
+
+    refreshData().catch(error => {
+      window.alert(error.message);
+      if (error.message.includes('administración')) window.location.replace('/');
+    });
+  </script>
+</body>
+</html>
